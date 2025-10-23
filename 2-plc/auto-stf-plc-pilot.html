@@ -1,0 +1,315 @@
+<!--
+Merve Erdogan
+Automatic Stiffness Perception - PLC - 10.13.2025
+//**********************************//
+    Experiment details
+    Automatic Stiffness Perception
+    Speed Equated across PLCs
+//**********************************//
+-->
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <title>Yale Psychology Experiment</title>
+    <script src='https://perceptionexperiments.net/ME/jspsych/jspsych.js'></script>
+    <link href="https://perceptionexperiments.net/ME/jspsych/css/jspsych.css" rel="stylesheet" type="text/css">
+    <script defer src="../99-commonJS/scriptTagConfig.js"></script> <!-- to import JsPsych plugins -->
+</head>
+
+<body style="background-color:black;">
+    <!----------   All Cloth Stimuli   --------------------->
+    <script src="../98-stim/wind_m1_s00078125.json"></script>
+    <script src="../98-stim/wind_m1_s003125.json"></script>
+    <script src="../98-stim/wind_m1_s0125.json"></script>
+    <script src="../98-stim/wind_m1_s05.json"></script>
+    <script src="../98-stim/wind_m1_s2.json"></script>
+    <!---------------------------------------------------->
+
+    <!----------   Parameters & Functions   ----------------->
+    <script src="expJS/params_general.js"></script>
+    <script src="../99-commonJS/cloth_processor_plugin.js"></script>
+    <script src="../99-commonJS/functions.js"></script>
+    <script src="../99-commonJS/plc_display.js"></script>
+    <script src="expJS/instructions_auto_stf.js"></script>
+    <!--------------------------------------------------------->
+    <script>
+
+        /*
+        ==========================
+        EXPERIMENT START
+        ==========================
+        */
+        timeline = [];
+        var experiment_start_time = new Date();
+        fullscreenActive = false;
+
+        /*
+        ===============================================================
+        INTRO & INSTRUCTION PROCEDURE
+        ===============================================================
+        */
+        //intro variables are defined in the function.js file
+        if (runIntro == true) {
+            timeline.push(check_device, consent, survey, enter_fullscreen)
+        }
+
+
+        //instruction variables are defined in the instructions_xxx.js file
+        if (runInstr == true) {
+            // Filter out any undefined instructions
+            const filteredInstructions = instructions.filter(instr => instr !== undefined);
+            timeline.push(...filteredInstructions);
+        }
+
+
+        /*
+        ==============================
+        CALCULATING SPEEDS  
+        ==============================
+        */
+        for (c = 0; c < clothNames.length; c++) {
+            timeline.push(
+                {
+                    type: 'clothProcessor',
+                    dot_pos: clothNames[c],
+                    clothType: getVariableName(clothNames[c]),
+                    fps: expSpecificParams.fps,
+                    gridX: expSpecificParams.gridX,
+                    gridY: expSpecificParams.gridY,
+                    conversionFactor: expSpecificParams.conversionFactor,
+                }
+            )
+        }
+        timeline.push({
+            type: 'html-keyboard-response',
+            stimulus: ' ',
+            choices: jsPsych.NO_KEYS,
+            trial_duration: 200,
+            data: { trial_category: 'speedRateCalculation' },
+            on_finish: function () {
+                // Calculate speed rates from all processed cloth data
+                var allData = jsPsych.data.get();
+                var clothData = allData.filter({ trial_type: 'clothProcessor' }).values();
+                var clothSpeeds = clothData.map(data => data.overallSpeed);
+                var meanSpeed = round(calculateMean(clothSpeeds));
+                var speedRates = clothSpeeds.map(speed => round(meanSpeed / speed));
+                window.calculatedClothSpeedRates = speedRates;
+                window.meanSpeedOfAllCloths = round(meanSpeed);
+                window.clothsInitialSpeeds = clothSpeeds;
+            }
+        });
+
+        /*
+        ==============================
+        PREPARE TRIAL DETAILS
+        ==============================
+        */
+        trial_num = 0;
+
+        // Extract stiffness value from cloth variable name: place decimal after first 0
+        // Example: wind_m05_s00078125 -> "00078125" -> 0.0078125; "05" -> 0.5; "2" -> 2
+        function getStiffnessValueFromVar(clothVar) {
+            var varName = getVariableName(clothVar) || '';
+            var match = varName.match(/_s([0-9]+)/);
+            if (!match) return null;
+            var digits = match[1];
+            if (digits.length === 0) return null;
+            if (digits[0] === '0') {
+                // keep leading zeros after decimal
+                return Number('0.' + digits.slice(1));
+            }
+            return Number(digits);
+        }
+        var stiffnessLevel_1 = getStiffnessValueFromVar(thisCloth_1);
+        var stiffnessLevel_2 = getStiffnessValueFromVar(thisCloth_2);
+
+        /*
+        ===============================================================
+                                TESTING PROCEDURE
+        ===============================================================
+        */
+
+        var start_video_1 = {
+            type: 'html-keyboard-response',
+            stimulus: video_1_start_instr, // defined in instructions_auto_stf.js
+            choices: [' '],
+        }
+
+        var time_between_videos = {
+            type: 'html-keyboard-response',
+            stimulus: ' ',
+            choices: jsPsych.NO_KEYS,
+            trial_duration: 2000,
+            data: { trial_category: 'time_between_videos' },
+        }
+
+        /*
+        ==============================
+        VIDEO 1
+        ==============================
+        */
+        //plc_display is a separate plugin as a js file
+        var video_1 = {
+            type: 'plcDisplayCreator',
+            clothData: function () {
+                var clothData = jsPsych.data.get().filter({ trial_type: 'clothProcessor' }).values();
+                return clothData[stiffness_cloth1];
+            },
+            clothType: getVariableName(thisCloth_1),
+            speedRate: function () {
+                return window.calculatedClothSpeedRates[stiffness_cloth1];
+            },
+            stiffnessLevel: stiffnessLevel_1,
+            equalizeSpeed: expSpecificParams.equalizeSpeed,
+            gridX: expSpecificParams.gridX,
+            gridY: expSpecificParams.gridY,
+            fps: expSpecificParams.fps,
+            cycleNum: 1,
+            data: { trial_category: 'video' },
+        }
+
+        /*
+        ==============================
+        VIDEO 2
+        ==============================
+        */
+        var video_2 = {
+            type: 'plcDisplayCreator',
+            clothData: function () {
+                var clothData = jsPsych.data.get().filter({ trial_type: 'clothProcessor' }).values();
+                return clothData[stiffness_cloth2];
+            },
+            clothType: getVariableName(thisCloth_2),
+            speedRate: function () {
+                return window.calculatedClothSpeedRates[stiffness_cloth2];
+            },
+            stiffnessLevel: stiffnessLevel_2,
+            equalizeSpeed: expSpecificParams.equalizeSpeed,
+            gridX: expSpecificParams.gridX,
+            gridY: expSpecificParams.gridY,
+            fps: expSpecificParams.fps,
+            data: { trial_category: 'video' },
+            cycleNum: 1,
+        }
+
+
+        /*
+        ==============================
+        TESTING
+        ==============================
+        */
+        // response via buttons instead of keypress
+        var test = {
+            type: 'html-button-response',
+            stimulus: standard_instr_style([test_question]),
+            choices: ['First Cloth', 'Second Cloth'],
+            margin_horizontal: '100px',
+            post_trial_gap: 500,
+            data: { trial_category: 'test' },
+            on_finish: function (data) {
+                var allData = jsPsych.data.get();
+                var display_data = allData.filter({ trial_category: 'video' }).values()
+                var display_data_1 = display_data[0]
+                var display_data_2 = display_data[1]
+
+                data.equalizeSpeed = expSpecificParams.equalizeSpeed;
+
+                data.cloth1Type = display_data_1.clothType;
+                data.cloth2Type = display_data_2.clothType;
+                data.cloth1Stiffness = display_data_1.stiffnessLevel;
+                data.cloth2Stiffness = display_data_2.stiffnessLevel;
+
+                data.stifferClothVideoNum = (display_data_1.stiffnessLevel > display_data_2.stiffnessLevel) ? 1 : 2;
+                data.rt = round(data.rt);
+                data.response = data.response + 1; //because response is 0-indexed in the html-button-response plugin
+                data.responseContent = data.response == 1 ? 'First Cloth' : 'Second Cloth';
+                data.correct = (data.stifferClothVideoNum == data.response) ? true : false;
+
+                data.cloth1OriginalSpeedPxSec = display_data_1.clothOriginalSpeedPxSec;
+                data.cloth2OriginalSpeedPxSec = display_data_2.clothOriginalSpeedPxSec;
+                data.cloth1SpeedRate = display_data_1.speedRate;
+                data.cloth2SpeedRate = display_data_2.speedRate;
+                data.cloth1PlannedSpeedPxSec = display_data_1.plannedSpeedPxSec;
+                data.cloth2PlannedSpeedPxSec = display_data_2.plannedSpeedPxSec;
+                data.cloth1ActualizedSpeedPxSec = display_data_1.actualizedSpeedPxSec;
+                data.cloth2ActualizedSpeedPxSec = display_data_2.actualizedSpeedPxSec;
+
+                data.video1Duration = display_data_1.displayDurationActualized;
+                data.video2Duration = display_data_2.displayDurationActualized;
+                data.displayFPSSet1 = display_data_1.displayFPSSet;
+                data.displayFPSSet2 = display_data_2.displayFPSSet;
+                data.cloth1WidthAvrPx = display_data_1.clothWidthAvrPx;
+                data.cloth1HeightAvrPx = display_data_1.clothHeightAvrPx;
+                data.cloth2WidthAvrPx = display_data_2.clothWidthAvrPx;
+                data.cloth2HeightAvrPx = display_data_2.clothHeightAvrPx;
+            }
+        }
+
+        timeline.push(start_video_1, video_1, cursor_off, time_between_videos, video_2, test)
+
+
+
+        /*
+        ===============================================================
+        CLOSING PROCEDURE
+        ===============================================================
+        */
+        //closing variables are in the function file
+        timeline.push(cursor_on, finishing, debreif_qs, exit_fullscreen, closing);
+
+
+        jsPsych.init({
+            timeline: timeline,
+            on_interaction_data_update: function (data) {
+                viewport_width = get_viewport_size().width;
+                viewport_height = get_viewport_size().height;
+                data.screen_width = viewport_width;
+                data.screen_height = viewport_height;
+
+                // Only check for fullscreen exit if fullscreen has been activated
+                if (fullscreenActive && exp_complete == false) {
+                    if (JSON.stringify(data).includes('blur') || JSON.stringify(data).includes('fullscreenexit')) {
+                        data.fullscreen_exited = true;  // Flag for fullscreen exit
+
+                        // Show a warning and a button to re-enter fullscreen
+                        if (!document.getElementById('fullscreen-warning')) {
+                            var warningDiv = document.createElement('div');
+                            warningDiv.id = 'fullscreen-warning';
+                            warningDiv.style.position = 'fixed';
+                            warningDiv.style.top = '0';
+                            warningDiv.style.left = '0';
+                            warningDiv.style.width = '100%';
+                            warningDiv.style.height = '100%';
+                            warningDiv.style.backgroundColor = 'rgba(255, 0, 0, 0.9)'; // Red background
+                            warningDiv.style.zIndex = '9999';
+                            warningDiv.style.display = 'flex';
+                            warningDiv.style.flexDirection = 'column';
+                            warningDiv.style.justifyContent = 'center';
+                            warningDiv.style.alignItems = 'center';
+                            warningDiv.style.color = 'white';
+                            warningDiv.innerHTML = `
+                                <p style="font-size: 24px;">You have exited fullscreen mode. Please return to fullscreen to continue.</p>
+                                <button id="return-fullscreen" style="font-size: 18px; padding: 10px 20px;">Return to Fullscreen</button>
+                            `;
+                            document.body.appendChild(warningDiv);
+
+                            // Add event listener to the button to re-enter fullscreen
+                            document.getElementById('return-fullscreen').addEventListener('click', function () {
+                                document.documentElement.requestFullscreen();
+                            });
+                        }
+                    } else {
+                        // If they are back in fullscreen, remove the warning
+                        var warningDiv = document.getElementById('fullscreen-warning');
+                        if (warningDiv) {
+                            document.body.removeChild(warningDiv);
+                        }
+                    }
+                }
+            },
+        })</script>
+</body>
+
+</html>  
